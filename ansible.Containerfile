@@ -12,8 +12,8 @@ RUN mkdir /ansible && mkdir -p /root/{.azure,.aws} && \
     pipx inject --include-deps ansible-core pypsrp && \
     pipx inject  ansible-core  pyVmomi>=8.0.3.0.1 vmware-vcenter 'setuptools < 82' && \
    # pipx ensurepath && source ~/.bashrc && \
-    ansible-galaxy collection install ansible.posix ansible.windows vmware.vmware community.vmware azure.azcollection
-
+    ansible-galaxy collection install ansible.posix ansible.windows vmware.vmware community.vmware azure.azcollection && \
+    pipx runpip ansible-core install -r ~/.ansible/collections/ansible_collections/azure/azcollection/requirements.txt
 
 WORKDIR /ansible
 ENTRYPOINT []
