@@ -1,21 +1,51 @@
-FROM docker.io/rockylinux/rockylinux:10.1-ubi
+# ==========================================
+# Stage 1: Builder
+# ==========================================
+# Use Rocky Linux 10 UBI as the build environment to compile and install Ansible and its dependencies
+FROM docker.io/rockylinux/rockylinux:10-ubi AS builder
 
+# Set PATH to include pipx binaries in /root/.local/bin
 ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/root/.local/bin/
 
+# Default Ansible version, can be overridden with --build-arg ANSIBLE_VERSION=<version>
 ARG ANSIBLE_VERSION=2.16.16
 
-RUN dnf install -yy https://dl.fedoraproject.org/pub/epel/epel-release-latest-10.noarch.rpm && dnf groupinstall -y "Development Tools" && dnf install -y sshpass pipx curl wget git rsync
+# Install EPEL repository, Development Tools, and build packages
+RUN dnf install -yy https://dl.fedoraproject.org/pub/epel/epel-release-latest-10.noarch.rpm && \
+    dnf groupinstall -y "Development Tools" && \
+    dnf install -y sshpass pipx curl wget git rsync
 
-RUN mkdir /ansible && mkdir -p /root/{.azure,.aws} && \
-    pipx install ansible-core==$ANSIBLE_VERSION && \
+# Set up directories, install ansible-core via pipx, inject required Python dependencies,
+# and install necessary Ansible collections along with their requirements
+RUN mkdir -p /root/{.azure,.aws} && \
+    pipx install ansible-core==${ANSIBLE_VERSION} && \
     pipx inject ansible-core argcomplete && \
     pipx inject --include-deps ansible-core pypsrp && \
-    pipx inject  ansible-core  pyVmomi>=8.0.3.0.1 vmware-vcenter 'setuptools < 82' && \
-   # pipx ensurepath && source ~/.bashrc && \
+    pipx inject ansible-core pyVmomi>=8.0.3.0.1 vmware-vcenter 'setuptools < 82' && \
     ansible-galaxy collection install ansible.posix ansible.windows vmware.vmware community.vmware azure.azcollection && \
     pipx runpip ansible-core install -r ~/.ansible/collections/ansible_collections/azure/azcollection/requirements.txt
 
-WORKDIR /ansible
-ENTRYPOINT []
 
-CMD [\"ansible\" \"--help\"]
+# ==========================================
+# Stage 2: Final Runtime Image
+# ==========================================
+# Use a fresh Rocky Linux 10 UBI image for the runtime container
+FROM docker.io/rockylinux/rockylinux:10-ubi
+
+# Set PATH to include pipx binaries copied into /root/.local/bin
+ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/root/.local/bin/
+
+# Install python3 and runtime dependencies, then clean package cache
+RUN dnf install -yy https://dl.fedoraproject.org/pub/epel/epel-release-latest-10.noarch.rpm && \
+    dnf install -y python3 sshpass curl wget git rsync && \
+    dnf clean all
+
+# Copy the entire /root/ home directory (including pipx venvs, binaries, and collections) from the builder stage
+COPY --from=builder /root/ /root/
+
+# Set the working directory for mounting playbooks
+WORKDIR /ansible
+
+# Reset entrypoint and set default command
+ENTRYPOINT []
+CMD ["ansible", "--help"]
